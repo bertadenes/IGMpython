@@ -43,6 +43,10 @@ The visualization can be done by [VMD](http://www.ks.uiuc.edu/Research/vmd/), pl
 igm.cub as isosurface and colouring by the volume of mideig.cub.
 
 We plan to automaticly generate a VMD visualization state file to aid the process.
+
+###Example
+The example inputs and outputs are provided for the case of benzene dimer.
+
 ## Further remarks
 
 Feel free to address problems to [Denes Berta](mailto:berta.denes@ttk.mta.hu).
