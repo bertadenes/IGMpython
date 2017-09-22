@@ -1,4 +1,6 @@
 # IGMpython
+*D. Berta, D. Ferenc, T. Foldes, A. Hamza*
+
 This program is an improved implementation of the work of [Hénon et al.](http://dx.doi.org/10.1039/c7cp02110k).
 IGMpython uses **molecular density** from ab initio calculations, given as a cube file.
 
@@ -44,7 +46,7 @@ igm.cub as isosurface and colouring by the volume of mideig.cub.
 
 We plan to automaticly generate a VMD visualization state file to aid the process.
 
-###Example
+### Example
 The example inputs and outputs are provided for the case of benzene dimer.
 
 ## Further remarks
