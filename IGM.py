@@ -206,33 +206,36 @@ def vmd_write():
         template1 = """#!/usr/local/bin/vmd
 # VMD script written by save_state $Revision: 1.41 $
 # VMD version: 1.8.6
-set viewplist
-set fixedlist
+#set viewplist
+#set fixedlist
 # Display settings
 display projection   Orthographic
 display nearclip set 0.000000
 # load new molecule
-mol new {c[densfile]}        type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
-mol addfile {c[mideigfile]}        type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
+mol new {c[densfile]} type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
+mol addfile {c[mideigfile]} type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
 #
 # representation of the atoms
 mol delrep 0 top
 mol representation Lines 1.00000
-mol color Name"""
+mol color Name
+"""
 #mol selection \{all\}
         template2 = """
 mol material Opaque
 mol addrep top
 mol representation CPK 1.000000 0.300000  118.000000 131.000000
-mol color Name"""
-#mol selection \{index     0 to    92 \}
+mol color Name
+"""
+#mol selection \{index     0 to    Natom \}
         template3 = """
 mol material Opaque
 mol addrep top
 #
 # add representation of the surface
 mol representation Isosurface 0.30000 1 0 0 1 1
-mol color Volume 0"""
+mol color Volume 0
+"""
 #mol selection \{all\}
         template4 = """
 mol material Opaque
@@ -240,7 +243,8 @@ mol addrep top
 mol selupdate 2 top 0
 mol colupdate 2 top 0
 mol scaleminmax top 2 {c[scalemin]} {c[scalemax]}
-mol smoothrep top 2 0"""
+mol smoothrep top 2 0
+"""
 #mol drawframes top 2 \{now\}
 #color scale method BGR
 #set colorcmds \{\{color Name \{C\} gray\}\}
@@ -248,21 +252,21 @@ mol smoothrep top 2 0"""
         context = {
         "mideigfile":"mideig.cub",
         "densfile":"igm.cub",
-        "scalemin":0.0,
-        "scalemax":1.0
+        "scalemin":-7.0,
+        "scalemax":7.0
         }
 
         with open("IGMpython.vmd", "w") as vmdfile:
             vmdfile.write(template1.format(c=context))
-            vmdfile.write("mol selection \{all\}")
+            vmdfile.write("mol selection {all}")
             vmdfile.write(template2.format(c=context))
-            vmdfile.write("mol selection \{index     0 to    92 \}")
+            vmdfile.write("mol selection {index     0 to    "+str(Natom)+" }\n")
             vmdfile.write(template3.format(c=context))
-            vmdfile.write("mol selection \{all\}")
+            vmdfile.write("mol selection {all}")
             vmdfile.write(template4.format(c=context))
-            vmdfile.write("mol drawframes top 2 \{now\}\n")
+            vmdfile.write("mol drawframes top 2 {now}\n")
             vmdfile.write("color scale method BGR\n")
-            vmdfile.write("set colorcmds \{\{color Name \{C\} gray\}\}\n")
+            vmdfile.write("set colorcmds {{color Name {C} gray}}\n")
 
     except IOError:
          print("IGMpython.vmd cannot be written.")
@@ -311,7 +315,7 @@ def main():
     fullcube.write("mideig.cub",t="mideig")
     IGMcube.write("igm.cub",t="dens")
     t8 = time.time()
-    vmd_write()
+    vmd_write(fullcube.Natom)
     t9 = time.time()
     print("Reading cubes:           %s seconds." % (t2 - t1))
     print("Checking cubes:          %s seconds." % (t3 - t2))
