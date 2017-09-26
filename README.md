@@ -44,7 +44,8 @@ purposes.
 The visualization can be done by [VMD](http://www.ks.uiuc.edu/Research/vmd/), plotting
 igm.cub as isosurface and colouring by the volume of mideig.cub.
 
-A VMD visualization state file is automatically generated to aid the process. (not yet tested)
+A VMD visualization state file is automatically generated to aid the process. Please note
+that VMD is looking for the cubes in the working directory.
 
 ### Example
 The example inputs and outputs are provided for the case of benzene dimer.
