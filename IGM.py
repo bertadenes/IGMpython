@@ -5,9 +5,12 @@ import copy
 import os
 import sys
 import time
+import itertools
+import multiprocessing
+from contextlib import closing
+from functools import partial
 
 import numpy as np
-
 
 class Cube(object):
     """
@@ -47,7 +50,7 @@ class Cube(object):
                 f.readline() #density title
                 head = f.readline().split()
                 self.Natom = int(head[0])
-                self.origin = np.array(head[1:4])
+                self.origin = np.array(head[1:4], dtype=np.float64)
                 self.xgrid = f.readline().split()
                 self.ygrid = f.readline().split()
                 self.zgrid = f.readline().split()
@@ -82,7 +85,62 @@ class Cube(object):
             sys.exit(0)
         #print(self.dens[0][0][0],self.dens[1][0][0],self.dens[0][1][0],self.dens[0][0][1],self.dens[-1][-1][-1])
         return
-    
+
+    def readXYZ(self, filename, offset=3):
+        """
+        Calculating the cube size: (xyz dim cube, g is the grid node distance, o is the offset in each dirrection, the
+        default would be 80*80*80, a,b,c is the dimensions of the molecule)
+        x*y*z = 512000
+        x*g = a + o
+        y*g = b + o
+        z*g = c + o
+        x*y*z*g**3 = (a+o)(b+o)(c+o)
+        g = ((a+o)(b+o)(c+o)/512000)**1/3
+        x = (a+o)/g
+        :param filename: 
+        :return: 
+        """
+        elements = {'H': 1, 'He': 2, 'Li': 3, 'Be': 4, 'B': 5, 'C': 6, 'N': 7, 'O': 8, 'F': 9, 'Ne': 10, 'Na': 11,
+                    'Mg': 12, 'Al': 13, 'Si': 14, 'P': 15, 'S': 16, 'Cl': 17, 'Ar': 18, 'K': 19, 'Ca': 20, 'Sc': 21,
+                    'Ti': 22, 'V': 23, 'Cr': 24, 'Mn': 25, 'Fe': 26, 'Co': 27, 'Ni': 28, 'Cu': 29, 'Zn': 30, 'Ga': 31,
+                    'Ge': 32, 'As': 33, 'Se': 34, 'Br': 35, 'Kr': 36, 'Rb': 37, 'Sr': 38, 'Y': 39, 'Zr': 40, 'Nb': 41,
+                    'Mo': 42, 'Tc': 43, 'Ru': 44, 'Rh': 45, 'Pd': 46, 'Ag': 47, 'Cd': 48, 'In': 49, 'Sn': 50, 'Sb': 51,
+                    'Te': 52, 'I': 53, 'Xe': 54, 'Cs': 55, 'Ba': 56, 'La': 57, 'Ce': 58, 'Pr': 59, 'Nd': 60, 'Pm': 61,
+                    'Sm': 62, 'Eu': 63, 'Gd': 64, 'Tb': 65, 'Dy': 66, 'Ho': 67, 'Er': 68, 'Tm': 69, 'Yb': 70, 'Lu': 71,
+                    'Hf': 72, 'Ta': 73, 'W': 74, 'Re': 75, 'Os': 76, 'Ir': 77, 'Pt': 78, 'Au': 79, 'Hg': 80, 'Tl': 81,
+                    'Pb': 82, 'Bi': 83, 'Po': 84, 'At': 85, 'Rn': 86, 'Fr': 87, 'Ra': 88, 'Ac': 89, 'Th': 90, 'Pa': 91,
+                    'U': 92, 'Np': 93, 'Pu': 94, 'Am': 95, 'Cm': 96, 'Bk': 97, 'Cf': 98, 'Es': 99, 'Fm': 100, 'Md': 101,
+                    'No': 102, 'Lr': 103, 'Rf': 104, 'Db': 105, 'Sg': 106, 'Bh': 107, 'Hs': 108, 'Mt': 109, 'Ds': 110,
+                    'Rg': 111, 'Cn': 112}
+        if not os.path.isfile(filename):
+            print(filename,"not file.")
+            sys.exit(0)
+        try:
+            with open(filename, "r") as f:
+                self.Natom = int(f.readline().split()[0])
+                f.readline() #comment
+                for i in range(self.Natom):
+                    line = f.readline().split()
+                    self.atoms.append([elements[line[0]], str(elements[line[0]])+'.00000', 1.8897259886*np.float64(line[1]),
+                                       1.8897259886 * np.float64(line[2]), 1.8897259886*np.float64(line[3])])
+                min = np.min(np.array(self.atoms, dtype=np.float64), axis=0)[2:]
+                max = np.max(np.array(self.atoms, dtype=np.float64), axis=0)[2:]
+                dim = max - min
+                grid = np.cbrt(np.prod(dim + 2*offset) / 512000)
+                self.Nx = int((dim[0] + 2*offset) / grid)
+                self.Ny = int((dim[1] + 2*offset) / grid)
+                self.Nz = int((dim[2] + 2*offset) / grid)
+                self.grad = np.zeros(shape=(self.Nx,self.Ny,self.Nz,3), dtype=np.float64)
+                self.dens = np.zeros(shape=(self.Nx,self.Ny,self.Nz), dtype=np.float64)
+                self.xgrid = [self.Nx, grid, 0.0, 0.0]
+                self.ygrid = [self.Ny, 0.0, grid, 0.0]
+                self.zgrid = [self.Nz, 0.0, 0.0, grid]
+                self.origin = min - offset
+        except IOError:
+            print(filename,"cannot be read.")
+            sys.exit(0)
+        return
+
     def write(self, filename, t="grad"):
         """
         Writes chosen volumetric data to a Gaussian-type cube file.
@@ -110,7 +168,7 @@ class Cube(object):
                 f.write("%d  %f  %f  %f\n" % (self.Nz,float(self.zgrid[1]),float(self.zgrid[2]),float(self.zgrid[3])))
                 for a in self.atoms:
                     for s in a:
-                        f.write(s+"  ")
+                        f.write(str(s)+"  ")
                     f.write("\n")
                 count = 0
                 for ix in range(self.Nx):
@@ -159,7 +217,14 @@ class Cube(object):
         self.hess[:,:,:,1,2] = self.hess[:,:,:,2,1] = np.gradient(self.grad[:,:,:,1], np.float64(self.zgrid[3]), axis=2) # 
         #print(self.hess[40,40,40,:,:])
         return
-    
+
+    def diag(self, params):
+        x = params[0]
+        y = params[1]
+        z = params[2]
+        self.mideig[x, y, z] = np.linalg.eigvalsh(self.hess[x, y, z])[1]
+        return
+
     def getmideig(self):
         """
         Calculate middle eigenvalue at each point.
@@ -168,12 +233,13 @@ class Cube(object):
         self.mideig = np.zeros(shape=self.dens.shape, dtype=np.float64)
         if not hasattr(self,"hess"):
             self.gethessian()
-        for x in range(self.Nx):
-            for y in range(self.Ny):
-                for z in range(self.Nz):
-                    self.mideig[x,y,z] = np.linalg.eigvalsh(self.hess[x,y,z])[1]
+        paramlist = list(itertools.product(range(self.Nx), range(self.Ny), range(self.Nz)))
+        with closing(multiprocessing.Pool(processes=4)) as pool:
+            pool.map(self.diag, paramlist)
+            pool.terminate()
         return
-    
+
+
 def checkfragmentation(fullcube, fragcubes):
     """
     Checks if the fragmentation is correct for calculation.
@@ -189,20 +255,20 @@ def checkfragmentation(fullcube, fragcubes):
             print("Some fragments are represented on a different grid!")
             sys.exit(0)
         for atom in f.atoms:
-            if atom in fullcube.atoms:
-                atomsinfrags.append(atom)
-            # else:
-                # print("Some fragments have been translated or rotated!")
-                # sys.exit(0)
+            for atom2 in fullcube.atoms:
+                if np.linalg.norm(np.subtract(np.array(atom, dtype=np.float64), np.array(atom2, dtype=np.float64))) < 0.00001:
+                    atomsinfrags.append(fullcube.atoms.index(atom2))
+                    break
     if atomcount != fullcube.Natom:
         print("Total number of atoms in the subsystems is not equal to the full system!")
-        print("Non-listed atoms will be treated as separate fragments.")
-        for atom in fullcube.atoms:
-            if atom not in atomsinfrags:
-                fragcubes.append(createatomfrag(fullcube, atom))
+        print("Please provide cubes of all fragments in the same level of theory, or use promolecular densities by specifying flag -p/--promol.")
+        sys.exit(0)
+    if len(atomsinfrags) != fullcube.Natom:
+        print("Some fragments have been translated or rotated!")
+        sys.exit(0)
     return
 
-def createatomfrag(fullcube, atom):
+def createatomfrag(atom, fc):
     a1 = np.array(
         [0.2815, 2.437, 11.84, 31.34, 67.82, 120.2, 190.9, 289.5, 406.3, 561.3, 760.8, 1016., 1319., 1658., 2042.,
          2501., 3024., 3625.], dtype=np.float64)
@@ -224,25 +290,33 @@ def createatomfrag(fullcube, atom):
     b3 = np.array([1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000, 1.000000,
                    0.9769441187964, 1.28982329420869, 1.67728950016773, 1.42959256611866, 1.70910955392241,
                    1.94212468440474, 2.01045436268597, 2.26654578422484], dtype=np.float64)
+    frags = []
+    print("Creating cube for atom",atom)
     atomfrag = Cube()
     atomfrag.Natom = 1
     atomfrag.atoms = [atom]
-    atomfrag.origin = fullcube.origin
-    atomfrag.xgrid = fullcube.xgrid
-    atomfrag.ygrid = fullcube.ygrid
-    atomfrag.zgrid = fullcube.zgrid
-    atomfrag.Nx = fullcube.Nx
-    atomfrag.Ny = fullcube.Ny
-    atomfrag.Nz = fullcube.Nz
-    atomfrag.dens = np.zeros(shape=fullcube.dens.shape, dtype=np.float64)
+    atomfrag.origin = fc.origin
+    atomfrag.xgrid = fc.xgrid
+    atomfrag.ygrid = fc.ygrid
+    atomfrag.zgrid = fc.zgrid
+    atomfrag.Nx = fc.Nx
+    atomfrag.Ny = fc.Ny
+    atomfrag.Nz = fc.Nz
+    atomfrag.dens = np.zeros(shape=fc.dens.shape, dtype=np.float64)
+    atomfrag.grad = np.zeros(shape=(atomfrag.Nx, atomfrag.Ny, atomfrag.Nz, 3), dtype=np.float64)
     for x in range(atomfrag.Nx):
         for y in range(atomfrag.Ny):
             for z in range(atomfrag.Nz):
-                r = np.linalg.norm([atom[2] - (atomfrag.origin[0] + atomfrag.xgrid[1] * x), atom[3] - (atomfrag.origin[1] + atomfrag.ygrid[2] * y), atom[4] - (atomfrag.origin[2] + atomfrag.zgrid[3] * z)])
-                atomfrag.dens[x,y,z] = a1[atom[0]-1] * np.exp(-b1[atom[0]] * r) + a2[atom[0]-1] * np.exp(-b2[atom[0]] * r) + a3[atom[0]-1] * np.exp(-b3[atom[0]] * r)
+                r = np.linalg.norm(np.array([np.float64(atom[2]) - (atomfrag.origin[0] + np.float64(atomfrag.xgrid[1]) * x),
+                                             np.float64(atom[3]) - (atomfrag.origin[1] + np.float64(atomfrag.ygrid[2]) * y),
+                                             np.float64(atom[4]) - (atomfrag.origin[2] + np.float64(atomfrag.zgrid[3]) * z)], dtype=np.float64))
+                atomindex = int(atom[0]) - 1
+                atomfrag.dens[x, y, z] = a1[atomindex] * np.exp(-b1[atomindex] * r) + a2[atomindex] * np.exp(-b2[atomindex] * r) + a3[atomindex] * np.exp(-b3[atomindex] * r)
+    frags.append(atomfrag)
+    print("Done")
     return atomfrag
 
-def vmd_write(Natom):
+def vmd_write(Natom, dd=False):
     """
     Writes VMD visualization file.
     :return: 
@@ -258,7 +332,7 @@ display projection   Orthographic
 display nearclip set 0.000000
 # load new molecule
 mol new {c[densfile]} type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
-mol addfile {c[mideigfile]} type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
+mol addfile {c[colourfile]} type cube first 0 last -1 step 1 filebonds 1 autobonds 1 waitfor all
 #
 # representation of the atoms
 mol delrep 0 top
@@ -295,11 +369,13 @@ mol smoothrep top 2 0
 #set colorcmds \{\{color Name \{C\} gray\}\}
 
         context = {
-        "mideigfile":"mideig.cub",
+        "colourfile":"mideig.cub",
         "densfile":"igm.cub",
         "scalemin":-2.0,
         "scalemax":2.0
         }
+        if dd:
+            context["colourfile"] = "diff.cub"
 
         with open("IGMpython.vmd", "w") as vmdfile:
             vmdfile.write(template1.format(c=context))
@@ -323,52 +399,82 @@ mol smoothrep top 2 0
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('file')
-    parser.add_argument('frags',nargs="+")
+    parser.add_argument('-f', '--frags', nargs="+", default=[])
+    parser.add_argument('-p', '--promol', action='store_true', default=False, help='Use promolecular densities.')
+    parser.add_argument('-d', '--densdiff', action='store_true', default=False, help='Use density difference for'
+                                                                                     'colouring.')
     args = parser.parse_args()
 
-    t1 = time.time()
     fullcube = Cube()
-    fullcube.read(args.file)
     fragcubes = []
-    for f in args.frags:
-        fragcubes.append(Cube())
-        fragcubes[-1].read(f)
-    t2 = time.time()
-    print("Reading cubes:           %s seconds." % (t2 - t1))
-    checkfragmentation(fullcube, fragcubes)
-    t3 = time.time()
-    print("Checking cubes:          %s seconds." % (t3 - t2))
-    IGMgrad = np.zeros(shape=(fullcube.Nx,fullcube.Ny,fullcube.Nz,3),dtype=np.float64)
+    if not args.promol:
+        t1 = time.time()
+        fullcube.read(args.file)
+        for f in args.frags:
+            fragcubes.append(Cube())
+            fragcubes[-1].read(f)
+        if args.densdiff:
+            Diffcube = copy.deepcopy(fullcube)
+        t2 = time.time()
+        print("Reading cubes:           %s seconds." % (t2 - t1))
+        checkfragmentation(fullcube, fragcubes)
+        t3 = time.time()
+        print("Checking cubes:          %s seconds." % (t3 - t2))
+    else:
+        t1 = time.time()
+        fullcube.readXYZ(args.file)
+        crtatom = partial(createatomfrag, fc=fullcube)
+        with closing(multiprocessing.Pool(processes=4)) as pool:
+            fragcubes = pool.map(crtatom, fullcube.atoms)
+            pool.terminate()
+
+        for f in fragcubes:
+            fullcube.dens = np.add(fullcube.dens, f.dens)
+        t2 = time.time()
+        print("Creating cubes:          %s seconds." % (t2 - t1))
+        t3 = time.time()
+
+    IGMgrad = np.zeros(shape=(fullcube.Nx,fullcube.Ny,fullcube.Nz,3), dtype=np.float64)
+    #fullcube.dens = np.zeros(shape=(fullcube.Nx,fullcube.Ny,fullcube.Nz), dtype=np.float64)
     for f in fragcubes:
-        f.grad[:,:,:,0] = np.gradient(f.dens,np.float64(f.xgrid[1]),axis=0)
-        f.grad[:,:,:,1] = np.gradient(f.dens,np.float64(f.ygrid[2]),axis=1)
-        f.grad[:,:,:,2] = np.gradient(f.dens,np.float64(f.zgrid[3]),axis=2)
+        if not args.promol and args.densdiff:
+            Diffcube.dens = np.subtract(Diffcube.dens, f.dens)
+        f.grad[:,:,:,0] = np.gradient(f.dens,np.float64(f.xgrid[1]), axis=0)
+        f.grad[:,:,:,1] = np.gradient(f.dens,np.float64(f.ygrid[2]), axis=1)
+        f.grad[:,:,:,2] = np.gradient(f.dens,np.float64(f.zgrid[3]), axis=2)
         IGMgrad = np.add(IGMgrad,np.absolute(f.grad))
     #with closing(Pool(processes=2)) as pool:
     #    IGMgrad[:,:,:,0] = np.gradient(fragsum,np.float64(fullcube.xgrid[1]),axis=0)
     #    pool.terminate()
-    fullcube.grad[:,:,:,0] = np.gradient(fullcube.dens,np.float64(fullcube.xgrid[1]),axis=0)
-    fullcube.grad[:,:,:,1] = np.gradient(fullcube.dens,np.float64(fullcube.ygrid[2]),axis=1)
-    fullcube.grad[:,:,:,2] = np.gradient(fullcube.dens,np.float64(fullcube.zgrid[3]),axis=2)
+    fullcube.grad[:,:,:,0] = np.gradient(fullcube.dens,np.float64(fullcube.xgrid[1]), axis=0)
+    fullcube.grad[:,:,:,1] = np.gradient(fullcube.dens,np.float64(fullcube.ygrid[2]), axis=1)
+    fullcube.grad[:,:,:,2] = np.gradient(fullcube.dens,np.float64(fullcube.zgrid[3]), axis=2)
     t4 = time.time()
     print("Calculating gradients:   %s seconds." % (t4 - t3))
     IGMcube = copy.deepcopy(fullcube)
+    IGMcube.dens = np.subtract(np.linalg.norm(IGMgrad,axis=3),np.linalg.norm(fullcube.grad, axis=3))
     IGMcube.grad = np.subtract(np.absolute(IGMgrad),np.absolute(fullcube.grad))
-    IGMcube.dens = np.subtract(np.linalg.norm(IGMgrad,axis=3),np.linalg.norm(fullcube.grad,axis=3))
 
     t5 = time.time()
     print("Setting up IGM:          %s seconds." % (t5 - t4))
-    fullcube.gethessian()
-    t6 = time.time()
-    print("Calculating Hessian:     %s seconds." % (t6 - t5))
-    fullcube.getmideig()
-    t7 = time.time()
-    print("Calculating eigenvalues: %s seconds." % (t7 - t6))
-    fullcube.write("mideig.cub",t="mideig")
+    if not args.densdiff:
+        fullcube.gethessian()
+        t6 = time.time()
+        print("Calculating Hessian:     %s seconds." % (t6 - t5))
+        fullcube.getmideig()
+        t7 = time.time()
+        print("Calculating eigenvalues: %s seconds." % (t7 - t6))
+
     IGMcube.write("igm.cub",t="dens")
-    t8 = time.time()
-    print("Writing cubes:           %s seconds." % (t8 - t7))
-    vmd_write(fullcube.Natom)
+    if args.densdiff:
+        Diffcube.write("diff.cub", t="dens")
+        t8 = time.time()
+        print("Writing cubes:           %s seconds." % (t8 - t5))
+    else:
+        fullcube.write("mideig.cub",t="mideig")
+        t8 = time.time()
+        print("Writing cubes:           %s seconds." % (t8 - t7))
+    vmd_write(fullcube.Natom, args.densdiff)
     t9 = time.time()
     print("Writing vmd state:       %s seconds." % (t9 - t8))
     return
