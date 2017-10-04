@@ -219,11 +219,8 @@ class Cube(object):
         return
 
     def diag(self, params):
-        x = params[0]
-        y = params[1]
-        z = params[2]
-        self.mideig[x, y, z] = np.linalg.eigvalsh(self.hess[x, y, z])[1]
-        return
+        m = self.hess[params[0],params[1],params[2],:,:]
+        return np.linalg.eigvalsh(m)[1]
 
     def getmideig(self):
         """
@@ -235,8 +232,20 @@ class Cube(object):
             self.gethessian()
         paramlist = list(itertools.product(range(self.Nx), range(self.Ny), range(self.Nz)))
         with closing(multiprocessing.Pool(processes=4)) as pool:
-            pool.map(self.diag, paramlist)
+            ev = pool.map(self.diag, paramlist)
             pool.terminate()
+        for i in range(len(paramlist)):
+            self.mideig[paramlist[i]] = ev[i]
+        return
+
+    def getmideig_np(self):
+        if not hasattr(self, "hess"):
+            self.gethessian()
+        self.mideig = np.zeros(shape=self.dens.shape, dtype=np.float64)
+        for x in range(self.Nx):
+            for y in range(self.Ny):
+                for z in range(self.Nz):
+                    self.mideig[x, y, z] = np.linalg.eigvalsh(self.hess[x, y, z])[1]
         return
 
 
@@ -343,7 +352,7 @@ mol color Name
         template2 = """
 mol material Opaque
 mol addrep top
-mol representation CPK 1.000000 0.300000  118.000000 131.000000
+mol representation CPK 0.500000 0.300000  118.000000 131.000000
 mol color Name
 """
 #mol selection \{index     0 to    Natom \}
@@ -464,7 +473,7 @@ def main():
         fullcube.getmideig()
         t7 = time.time()
         print("Calculating eigenvalues: %s seconds." % (t7 - t6))
-
+        
     IGMcube.write("igm.cub",t="dens")
     if args.densdiff:
         Diffcube.write("diff.cub", t="dens")
