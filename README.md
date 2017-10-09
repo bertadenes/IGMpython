@@ -1,5 +1,7 @@
 # IGMpython
-*D. Berta, D. Ferenc, T. Foldes, A. Hamza*
+*D. Berta, D. Ferenc, T. Földes, A. Hamza*
+
+*Thanks to Imre Bakó and Imre Pápai for theoretical support.*
 
 This program is an improved implementation of the work of [Hénon et al.](http://dx.doi.org/10.1039/c7cp02110k).
 IGMpython uses **molecular density** from ab initio calculations, given as a cube file.
